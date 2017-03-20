@@ -1,0 +1,96 @@
+  version: '3'
+  services:
+    traefik:
+      image: traefik:v1.2.0-rc2-alpine
+      networks:
+        - traefik
+      ports:
+        - "8080:80"
+        - "8443:443"
+        - "8090:8080"
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+# Before running something like this stack in production, make sure you store both your Traefik toml config 
+# file and acme.json in a durable volume that's mounted in the container:
+#        - /data/traefik/config:/etc/traefik
+      command: traefik --web -l DEBUG --docker --docker.swarmmode --docker.watch -c /etc/traefik/traefik.toml
+      deploy:
+        placement:
+          constraints:
+            - node.role == manager
+    beluga-wordpress:
+      image: wordpress:php7.1-apache
+      ports:
+        - "80"
+      networks:
+        - traefik
+        - db
+      depends_on:
+        - dbcluster
+      deploy:
+        replicas: 1
+        update_config:
+          parallelism: 1
+          delay: 10s
+        restart_policy:
+          condition: on-failure
+        labels:
+          - "traefik.frontend.rule=Host:beluga"
+          - "traefik.docker.network=traefiked-wordpress_traefik"
+          - "traefik.port=80"
+      environment:
+        WORDPRESS_DB_HOST: "dbcluster"
+        WORDPRESS_DB_NAME: "wordpress"
+        WORDPRESS_TABLE_PREFIX: "beluga"
+        WORDPRESS_DB_USER: "wp"
+        WORDPRESS_DB_PASSWORD: "changemetoo"
+    humpback-wordpress:
+      image: wordpress:php7.1-apache
+      ports:
+        - "80"
+      networks:
+        - traefik
+        - db
+      depends_on:
+        - dbcluster
+      deploy:
+        replicas: 1
+        update_config:
+          parallelism: 1
+          delay: 10s
+        restart_policy:
+          condition: on-failure
+        labels:
+          - "traefik.frontend.rule=Host:humpback"
+          - "traefik.docker.network=multi-site-proxy_traefik"
+          - "traefik.port=80"
+      environment:
+        WORDPRESS_DB_HOST: "dbcluster"
+        WORDPRESS_DB_NAME: "wordpress"
+        WORDPRESS_TABLE_PREFIX: "humpback"
+        WORDPRESS_DB_USER: "wp"
+        WORDPRESS_DB_PASSWORD: "changemetoo"
+    dbcluster:
+      image: toughiq/mariadb-cluster
+      networks:
+        - db
+      deploy:
+        replicas: 1
+        update_config:
+          parallelism: 2
+          delay: 10s
+        restart_policy:
+          condition: on-failure
+      environment:
+        DB_SERVICE_NAME: dbcluster 
+        MYSQL_ROOT_PASSWORD: changeme 
+        MYSQL_DATABASE: wordpress 
+        MYSQL_USER: wp 
+        MYSQL_PASSWORD: changemetoo 
+
+  networks:
+    traefik:
+      driver: overlay
+    db:
+      driver: overlay
+
